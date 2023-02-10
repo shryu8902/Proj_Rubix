@@ -1,9 +1,18 @@
+#%%
 import numpy as np
 import gymnasium as gym
+import pygame
 from gymnasium import spaces
 
 class RubiksCubeEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, render_mode = None):
+        self.window_size = 512
+
+        assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self.render_mode = render_mode
+        self.window = None
+        self.clock = None
+
         # Define the observation and action spaces
         # create rubixube space made with 54 slices where each slices has 0~5 colors
         self.observation_space = spaces.MultiDiscrete(6*np.ones([6,3,3]))
@@ -12,7 +21,7 @@ class RubiksCubeEnv(gym.Env):
         self.scramble_history = None
         self.step_counter = 0
     
-        self.correct_state = np.arange(6)[:,np.newaxis,np.newaxis]*np.ones([6,3,3])
+        self.correct_state = self.cube.copy()
 
         self.FaceDictI2C = {0:'U', 1:'L', 2:'F', 3:'R', 4:'B', 5:'D'}
         self.FaceDictC2I = {'U':0, 'L':1, 'F':2, 'R':3, 'B':4, 'D':5}
@@ -30,11 +39,9 @@ class RubiksCubeEnv(gym.Env):
                        3: ('R', (255, 0, 0)),
                        4: ('B', (0, 0, 255)),
                        5: ('Y', (255, 255, 0))}
-        # Initialize the state of the cube
-        self.state = self._reset()
 
-    def cube_initializing():
-        cube = np.arange(6)[:,np.newaxis,np.newaxis]*np.ones([6,3,3])
+    def cube_initializing(self):
+        cube = np.arange(6,dtype=np.int8)[:,np.newaxis,np.newaxis]*np.ones([6,3,3],dtype=np.int8)
         return cube
 
     def scramble(self, l_scramble):
@@ -48,9 +55,13 @@ class RubiksCubeEnv(gym.Env):
         self.cube = self.cube_initializing()
         self.cube, self.scramble_history = self.scramble(l_scramble)
         self.step_counter = 0
-        return self.state
 
-    def action_decomposition(action):
+        if self.render_mode == "human":
+            self._render_frame()
+
+        return self.cube
+
+    def action_decomposition(self,action):
         target_face = action[0]
         assert target_face in ["F","B", "R", "L", "U", "D"]
         clockwise = False if "'" in action else True
@@ -80,7 +91,7 @@ class RubiksCubeEnv(gym.Env):
         self.RotatingCube(target_face, clock)
         self.step_counter += 1
         # Compute the reward based on the new state of the cube
-        if self.cube == self.correct_state:
+        if (self.cube == self.correct_state).all():
             reward = 100
             terminated = True
             truncated = False
@@ -88,92 +99,218 @@ class RubiksCubeEnv(gym.Env):
             reward = -1
             terminated = False        
             truncated = False
-        info = {self.step_counter}
+        info = {'count':self.step_counter}
         # Return the new state of the cube, the reward, a flag indicating whether the episode is done, and any additional information
-        return self.state, reward, terminated, truncated, info
+        if self.render_mode == "human":
+            self._render_frame()
+
+        return self.cube, reward, terminated, truncated, info
 
     def ColoringInt2Char(self):
-        text_cube = self.RGBDict[self.cube]
+        text_cube = np.array([self.RGBDict[int(x)][0] for x in np.nditer(self.cube)]).reshape(6,3,3)
         return text_cube
 
-    def print_state(self):
-        print('   ',self.cube[self.FaceDictC2I['U'][0,:]],'      ')
-        print('   ',self.cube[self.FaceDictC2I['U'][1,:]],'      ')
-        print('   ',self.cube[self.FaceDictC2I['U'][2,:]],'      ')
-        print(self.cube[self.FaceDictC2I['L'][0,:]],self.cube[self.FaceDictC2I['F'][0,:]],self.cube[self.FaceDictC2I['R'][0,:]],self.cube[self.FaceDictC2I['B'][0,:]])
-        print(self.cube[self.FaceDictC2I['L'][1,:]],self.cube[self.FaceDictC2I['F'][1,:]],self.cube[self.FaceDictC2I['R'][1,:]],self.cube[self.FaceDictC2I['B'][1,:]])
-        print(self.cube[self.FaceDictC2I['L'][2,:]],self.cube[self.FaceDictC2I['F'][2,:]],self.cube[self.FaceDictC2I['R'][2,:]],self.cube[self.FaceDictC2I['B'][2,:]])
-        print('   ',self.cube[self.FaceDictC2I['D'][0,:]],'      ')
-        print('   ',self.cube[self.FaceDictC2I['D'][1,:]],'      ')
-        print('   ',self.cube[self.FaceDictC2I['D'][2,:]],'      ')
+    def print_state(self, mode = 'c'):
+        if mode == 'c':
+            pr_cube = self.ColoringInt2Char()
+            space = '             '
+
+        else:
+            pr_cube = self.cube
+            space = '       '
+
+        print(space,pr_cube[self.FaceDictC2I['U']][0,:])
+        print(space,pr_cube[self.FaceDictC2I['U']][1,:])
+        print(space,pr_cube[self.FaceDictC2I['U']][2,:])
+        print(pr_cube[self.FaceDictC2I['L']][0,:],pr_cube[self.FaceDictC2I['F']][0,:],pr_cube[self.FaceDictC2I['R']][0,:],pr_cube[self.FaceDictC2I['B']][0,:])
+        print(pr_cube[self.FaceDictC2I['L']][1,:],pr_cube[self.FaceDictC2I['F']][1,:],pr_cube[self.FaceDictC2I['R']][1,:],pr_cube[self.FaceDictC2I['B']][1,:])
+        print(pr_cube[self.FaceDictC2I['L']][2,:],pr_cube[self.FaceDictC2I['F']][2,:],pr_cube[self.FaceDictC2I['R']][2,:],pr_cube[self.FaceDictC2I['B']][2,:])
+        print(space,pr_cube[self.FaceDictC2I['D']][0,:])
+        print(space,pr_cube[self.FaceDictC2I['D']][1,:])
+        print(space,pr_cube[self.FaceDictC2I['D']][2,:])
+
+    def close(self):
+        if self.window is not None:
+            pygame.display.quit()
+            pygame.quit()
+
+    def render(self):
+        if self.render_mode == "rgb_array":
+            return self._render_frame()
+
+    def _render_frame(self):
+        if self.window is None and self.render_mode == "human":
+            pygame.init()
+            pygame.display.init()
+            self.window = pygame.display.set_mode((self.window_size, self.window_size))
+        if self.clock is None and self.render_mode == "human":
+            self.clock = pygame.time.Clock()
+
+
+    
+        canvas = pygame.Surface((self.window_size, self.window_size))
+        canvas.fill((255, 255, 255))
+        pix_square_size = (
+            self.window_size / self.size
+        )  # The size of a single grid square in pixels
+
+        # First we draw the target
+        pygame.draw.rect(
+            canvas,
+            (255, 0, 0),
+            pygame.Rect(
+                pix_square_size * self._target_location,
+                (pix_square_size, pix_square_size),
+            ),
+        )
+        # Now we draw the agent
+        pygame.draw.circle(
+            canvas,
+            (0, 0, 255),
+            (self._agent_location + 0.5) * pix_square_size,
+            pix_square_size / 3,
+        )
+
+        # Finally, add some gridlines
+        for x in range(self.size + 1):
+            pygame.draw.line(
+                canvas,
+                0,
+                (0, pix_square_size * x),
+                (self.window_size, pix_square_size * x),
+                width=3,
+            )
+            pygame.draw.line(
+                canvas,
+                0,
+                (pix_square_size * x, 0),
+                (pix_square_size * x, self.window_size),
+                width=3,
+            )
+
+        if self.render_mode == "human":
+            # The following line copies our drawings from `canvas` to the visible window
+            self.window.blit(canvas, canvas.get_rect())
+            pygame.event.pump()
+            pygame.display.update()
+
+            # We need to ensure that human-rendering occurs at the predefined framerate.
+            # The following line will automatically add a delay to keep the framerate stable.
+            self.clock.tick(self.metadata["render_fps"])
+        else:  # rgb_array
+            return np.transpose(
+                np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
+            )
+
+#%%
+pygame.init()
+pygame.display.init()
+window_size = 512
+window =pygame.display.set_mode((window_size, 2*window_size))
+clock = pygame.time.Clock()
+
+canvas = pygame.Surface((window_size, 2*window_size))
+canvas.fill((255, 255, 255))
+pix_square_size = (window_size / 12)
+# pygame.draw.rect(canvas, ()
+#             canvas,
+#             (255, 0, 0),
+#             pygame.Rect(
+#                 pix_square_size * self._target_location,
+#                 (pix_square_size, pix_square_size),
+#             ),
+#         )
+
+for x in range(13):
+    pygame.draw.line(canvas, 0, (0, pix_square_size * x), (window_size, pix_square_size * x), width = 3)
+    pygame.draw.line(canvas, 0, (pix_square_size * x, 0), (pix_square_size * x, window_size),width=3)
+pygame.event.pump()
+pygame.display.update()
+clock.tick(4)
+#%%
+import pygame
+
+background_colour = (255,255,255)
+(width, height) = (300, 200)
+
+screen = pygame.display.set_mode((width, height))
+pygame.display.set_caption('Tutorial 1')
+screen.fill(background_colour)
+
+pygame.display.flip()
+
+running = True
+while running:
+  for event in pygame.event.get():
+    if event.type == pygame.QUIT:
+      running = False
+#%%
+    def render(self):
+        if self.render_mode == "rgb_array":
+            return self._render_frame()
+
+    def _render_frame(self):
+        if self.window is None and self.render_mode == "human":
+            pygame.init()
+            pygame.display.init()
+            # window = pygame.display.set_mode((100,100))
+            self.window = pygame.display.set_mode(
+                (self.window_size, self.window_size)
+            )
+        if self.clock is None and self.render_mode == "human":
+            self.clock = pygame.time.Clock()
+        # canvas = pygame.Surface((100,100))
+        canvas = pygame.Surface((self.window_size, self.window_size))
+        canvas.fill((255, 255, 255))
+        pix_square_size = (
+            self.window_size / self.size
+        )  # The size of a single grid square in pixels
+
+        # First we draw the target
         
-
-        self.cube
-
-def render(self):
-    if self.render_mode == "rgb_array":
-        return self._render_frame()
-
-def _render_frame(self):
-    if self.window is None and self.render_mode == "human":
-        pygame.init()
-        pygame.display.init()
-        self.window = pygame.display.set_mode(
-            (self.window_size, self.window_size)
-        )
-    if self.clock is None and self.render_mode == "human":
-        self.clock = pygame.time.Clock()
-
-    canvas = pygame.Surface((self.window_size, self.window_size))
-    canvas.fill((255, 255, 255))
-    pix_square_size = (
-        self.window_size / self.size
-    )  # The size of a single grid square in pixels
-
-    # First we draw the target
-    pygame.draw.rect(
-        canvas,
-        (255, 0, 0),
-        pygame.Rect(
-            pix_square_size * self._target_location,
-            (pix_square_size, pix_square_size),
-        ),
-    )
-    # Now we draw the agent
-    pygame.draw.circle(
-        canvas,
-        (0, 0, 255),
-        (self._agent_location + 0.5) * pix_square_size,
-        pix_square_size / 3,
-    )
-
-    # Finally, add some gridlines
-    for x in range(self.size + 1):
-        pygame.draw.line(
+        pygame.draw.rect(
             canvas,
-            0,
-            (0, pix_square_size * x),
-            (self.window_size, pix_square_size * x),
-            width=3,
+            (255, 0, 0),
+            pygame.Rect(
+                pix_square_size * self._target_location,
+                (pix_square_size, pix_square_size),
+            ),
         )
-        pygame.draw.line(
+        # Now we draw the agent
+        pygame.draw.circle(
             canvas,
-            0,
-            (pix_square_size * x, 0),
-            (pix_square_size * x, self.window_size),
-            width=3,
+            (0, 0, 255),
+            (self._agent_location + 0.5) * pix_square_size,
+            pix_square_size / 3,
         )
 
-    if self.render_mode == "human":
-        # The following line copies our drawings from `canvas` to the visible window
-        self.window.blit(canvas, canvas.get_rect())
-        pygame.event.pump()
-        pygame.display.update()
+        # Finally, add some gridlines
+        for x in range(self.size + 1):
+            pygame.draw.line(
+                canvas,
+                0,
+                (0, pix_square_size * x),
+                (self.window_size, pix_square_size * x),
+                width=3,
+            )
+            pygame.draw.line(
+                canvas,
+                0,
+                (pix_square_size * x, 0),
+                (pix_square_size * x, self.window_size),
+                width=3,
+            )
 
-        # We need to ensure that human-rendering occurs at the predefined framerate.
-        # The following line will automatically add a delay to keep the framerate stable.
-        self.clock.tick(self.metadata["render_fps"])
-    else:  # rgb_array
-        return np.transpose(
-            np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
-        )
+        if self.render_mode == "human":
+            # The following line copies our drawings from `canvas` to the visible window
+            self.window.blit(canvas, canvas.get_rect())
+            pygame.event.pump()
+            pygame.display.update()
+
+            # We need to ensure that human-rendering occurs at the predefined framerate.
+            # The following line will automatically add a delay to keep the framerate stable.
+            self.clock.tick(self.metadata["render_fps"])
+        else:  # rgb_array
+            return np.transpose(
+                np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
+            )
